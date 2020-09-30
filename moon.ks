@@ -7,7 +7,7 @@ escapeAtmosphere().
 
 set mapview to true.
 
-doCircularization().
+makeOrbitCircular().
 
 doTransfer().
 

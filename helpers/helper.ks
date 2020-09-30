@@ -1,6 +1,10 @@
 
 runpath("0:/helpers/math.ks").
 
+runpath("0:/helpers/exec.ks").
+
+set STEP_SIZES to list(80, 8, 1).
+
 function blastOff {
   lock throttle to 1.
   stageOnReady().
@@ -38,22 +42,27 @@ function stageOnReady {
   stage.
 }
 
-
-function doCircularization {
-  local circ is list(0).
-  set circ to improveConverge(circ, eccentricityScore@).
-  wait until altitude > 70000.
-  executeManeuver(list(time:seconds + eta:apoapsis, 0, 0, circ[0])).
+function makeOrbitCircular {
+  local prograde is 0.
+  set prograde to iterativeOptimize(list(prograde), circularCost@)[0].
+  wait until altitude > 72000.
+  // local mList is list(time:seconds + eta:apoapsis, 0, 0, prograde).
+  // local nd is node(mList[0], mList[1], mList[2], mList[3]).
+  // add nd.
+  // local startTime is calculateStartTime(nd).
+  // warpto(startTime - 15).
+  // executeNode(nd).
+  executeManeuver(list(time:seconds + eta:apoapsis, 0, 0, prograde)).
 }
 
 function protectFromPast {
   parameter originalFunction.
   local replacementFunction is {
-    parameter data.
-    if data[0] < time:seconds + 15 {
+    parameter inp.
+    if inp[0] < time:seconds + 15 {
       return 2^64.
     } else {
-      return originalFunction(data).
+      return originalFunction(inp).
     }
   }.
   return replacementFunction@.
@@ -67,7 +76,7 @@ function doTransfer {
     1
   ).
   local transfer is list(startSearchTime, 0, 0, 0).
-  set transfer to improveConverge(transfer, protectFromPast(munTransferScore@)).
+  set transfer to iterativeOptimize(transfer, protectFromPast(munTransferCost@)).
   executeManeuver(transfer).
   wait 1.
   warpto(time:seconds + obt:nextPatchEta - 5).
@@ -83,26 +92,26 @@ function angleToMun {
   ).
 }
 
-function munTransferScore {
-  parameter data.
-  local mnv is node(data[0], data[1], data[2], data[3]).
-  addManeuverToFlightPlan(mnv).
+function munTransferCost {
+  parameter inp.
+  local nd is node(inp[0], inp[1], inp[2], inp[3]).
+  add nd.
   local result is 0.
-  if mnv:orbit:hasNextPatch {
-    set result to mnv:orbit:nextPatch:periapsis.
+  if nd:orbit:hasNextPatch {
+    set result to nd:orbit:nextPatch:periapsis.
   } else {
-    set result to distanceToMunAtApoapsis(mnv).
+    set result to distanceToMunAtApoapsis(nd).
   }
-  removeManeuverFromFlightPlan(mnv).
+  remove nd.
   return result.
 }
 
 function distanceToMunAtApoapsis {
-  parameter mnv.
+  parameter nd.
   local apoapsisTime is ternarySearch(
     altitudeAt@, 
-    time:seconds + mnv:eta, 
-    time:seconds + mnv:eta + (mnv:orbit:period / 2),
+    time:seconds + nd:eta, 
+    time:seconds + nd:eta + (nd:orbit:period / 2),
     1
   ).
   return (positionAt(ship, apoapsisTime) - positionAt(Mun, apoapsisTime)):mag.
@@ -129,38 +138,43 @@ function ternarySearch {
   }
 }
 
-function eccentricityScore {
-  parameter data.
-  local mnv is node(time:seconds + eta:apoapsis, 0, 0, data[0]).
-  addManeuverToFlightPlan(mnv).
-  local result is mnv:orbit:eccentricity.
-  removeManeuverFromFlightPlan(mnv).
-  return result.
+
+// ----- COST FUNCTIONS -----
+
+// Add maneuver node and check 
+function circularCost {
+  parameter inp.
+  local nd is node(time:seconds + eta:apoapsis, 0, 0, inp[0]).
+  add nd.
+  local cost is nd:orbit:eccentricity.
+  remove nd.
+  return cost.
 }
 
-function improveConverge {
-  parameter data, scoreFunction.
-  for stepSize in list(100, 10, 1) {
+// Apply Hillclimbing at different step sizes 
+function iterativeOptimize {
+  parameter inp, evaluationFunc.
+  for stepSize in STEP_SIZES {
     until false {
-      local oldScore is scoreFunction(data).
-      set data to improve(data, stepSize, scoreFunction).
-      if oldScore <= scoreFunction(data) {
+      local oldCost is evaluationFunc(inp).
+      set inp to improve(inp, stepSize, evaluationFunc).
+      if oldCost <= evaluationFunc(inp) {
         break.
       }
     }
   }
-  return data.
+  return inp.
 }
 
 function improve {
-  parameter data, stepSize, scoreFunction.
-  local scoreToBeat is scoreFunction(data).
-  local bestCandidate is data.
+  parameter inp, stepSize, evaluationFunc.
+  local costToBeat is evaluationFunc(inp).
+  local bestCandidate is inp.
   local candidates is list().
   local index is 0.
-  until index >= data:length {
-    local incCandidate is data:copy().
-    local decCandidate is data:copy().
+  until index >= inp:length {
+    local incCandidate is inp:copy().
+    local decCandidate is inp:copy().
     set incCandidate[index] to incCandidate[index] + stepSize.
     set decCandidate[index] to decCandidate[index] - stepSize.
     candidates:add(incCandidate).
@@ -168,9 +182,9 @@ function improve {
     set index to index + 1.
   }
   for candidate in candidates {
-    local candidateScore is scoreFunction(candidate).
-    if candidateScore < scoreToBeat {
-      set scoreToBeat to candidateScore.
+    local candidateCost is evaluationFunc(candidate).
+    if candidateCost < costToBeat {
+      set costToBeat to candidateCost.
       set bestCandidate to candidate.
     }
   }
@@ -179,52 +193,48 @@ function improve {
 
 function executeManeuver {
   parameter mList.
-  local mnv is node(mList[0], mList[1], mList[2], mList[3]).
-  addManeuverToFlightPlan(mnv).
-  local startTime is calculateStartTime(mnv).
+  local nd is node(mList[0], mList[1], mList[2], mList[3]).
+  add nd.
+  local startTime is calculateStartTime(nd).
   warpto(startTime - 15).
   wait until time:seconds > startTime - 10.
-  lockSteeringAtManeuverTarget(mnv).
-  wait until time:seconds > startTime.
-  lock throttle to 1.
-  until isManeuverComplete(mnv) {
-    engageThrusters().
-  }
-  lock throttle to 0.
-  unlock steering.
-  removeManeuverFromFlightPlan(mnv).
+  executeNode(nd).
+  // lockSteeringAtManeuverTarget(nd).
+  // wait until time:seconds > startTime.
+  // lock throttle to 1.
+  // until isManeuverComplete(nd) {
+  //   engageThrusters().
+  // }
+  // lock throttle to 0.
+  // unlock steering.
+  // remove nd.
 }
 
 function addManeuverToFlightPlan {
-  parameter mnv.
-  add mnv.
+  parameter nd.
+  add nd.
 }
 
 function calculateStartTime {
-  parameter mnv.
-  return time:seconds + mnv:eta - maneuverBurnTime(mnv) / 2.
+  parameter nd.
+  return time:seconds + nd:eta - nodeBurnDuration(nd) / 2.
 }
 
 function lockSteeringAtManeuverTarget {
-  parameter mnv.
-  lock steering to mnv:burnvector.
+  parameter nd.
+  lock steering to nd:burnvector.
 }
 
 function isManeuverComplete {
-  parameter mnv.
+  parameter nd.
   if not(defined originalVector) or originalVector = -1 {
-    declare global originalVector to mnv:burnvector.
+    declare global originalVector to nd:burnvector.
   }
-  if vang(originalVector, mnv:burnvector) > 90 {
+  if vang(originalVector, nd:burnvector) > 90 {
     declare global originalVector to -1.
     return true.
   }
   return false.
-}
-
-function removeManeuverFromFlightPlan {
-  parameter mnv.
-  remove mnv.
 }
 
 function doHoverslam {
