@@ -1,13 +1,9 @@
-runpath("0:/helper.ks").
+runpath("0:/helpers/helper.ks").
 print "blastoff!".
 
-doLaunch().
+blastOff().
 
 escapeAtmosphere().
-
-manageThrusters().
-
-doShutdown().
 
 set mapview to true.
 

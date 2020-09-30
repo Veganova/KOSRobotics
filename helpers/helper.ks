@@ -1,3 +1,44 @@
+
+runpath("0:/helpers/math.ks").
+
+function blastOff {
+  lock throttle to 1.
+  stageOnReady().
+}
+
+function engageThrusters {
+  if not(defined prevThrust) {
+    global prevThrust is ship:availablethrust.
+  }
+  if prevThrust - 12 > ship:availablethrust {
+    until false {
+      stageOnReady(). wait 1.
+      if ship:availableThrust > 0 { 
+        break.
+      }
+    }
+    global prevThrust is ship:availablethrust.
+  }
+}
+
+function escapeAtmosphere {
+  lock targetAngle to gravityTurn().
+  lock steering to heading(90, targetAngle).
+
+  until apoapsis > 100000 {
+    engageThrusters().
+  }
+
+  lock throttle to 0.
+  lock steering to prograde.
+}
+
+function stageOnReady {
+  wait until stage:ready.
+  stage.
+}
+
+
 function doCircularization {
   local circ is list(0).
   set circ to improveConverge(circ, eccentricityScore@).
@@ -147,7 +188,7 @@ function executeManeuver {
   wait until time:seconds > startTime.
   lock throttle to 1.
   until isManeuverComplete(mnv) {
-    doAutoStage().
+    engageThrusters().
   }
   lock throttle to 0.
   unlock steering.
@@ -162,26 +203,6 @@ function addManeuverToFlightPlan {
 function calculateStartTime {
   parameter mnv.
   return time:seconds + mnv:eta - maneuverBurnTime(mnv) / 2.
-}
-
-function maneuverBurnTime {
-  parameter mnv.
-  local dV is mnv:deltaV:mag.
-  local g0 is 9.80665.
-  local isp is 0.
-
-  list engines in myEngines.
-  for en in myEngines {
-    if en:ignition and not en:flameout {
-      set isp to isp + (en:isp * (en:availableThrust / ship:availableThrust)).
-    }
-  }
-
-  local mf is ship:mass / constant():e^(dV / (isp * g0)).
-  local fuelFlow is ship:availableThrust / (isp * g0).
-  local t is (ship:mass - mf) / fuelFlow.
-
-  return t.
 }
 
 function lockSteeringAtManeuverTarget {
@@ -204,45 +225,6 @@ function isManeuverComplete {
 function removeManeuverFromFlightPlan {
   parameter mnv.
   remove mnv.
-}
-
-function doLaunch {
-  lock throttle to 1.
-  enableThrusters().
-}
-
-function escapeAtmosphere {
-  // lock targetAngle to -4.54545E-8 * alt:radar^2 - 0.000609091 * alt:radar + 90.0909.
-  lock targetAngle to -(1.03 * alt:radar^0.4095 - 90).
-  lock steering to heading(90, targetAngle).
-  wait 10.
-  set warp to 4.
-}
-
-function manageThrusters {
-  local prevThrust is ship:availablethrust.
-  until apoapsis > 100000 {
-    print "available thrust: " + ship:availablethrust at (0, 15).
-    // ship thrust dropped
-    if ship:availablethrust < (prevThrust - 12) {
-      enableThrusters().
-      set prevThrust to ship:availablethrust.
-    }
-  }
-}
-
-function doShutdown {
-  lock throttle to 0.
-  lock steering to prograde.
-}
-
-function enableThrusters {
-  wait until stage:ready. wait 1.
-  stage.
-  // until ship:availableThrust > 0 {
-  //   wait until stage:ready. wait 1.
-  //   stage.
-  // }
 }
 
 function doHoverslam {
