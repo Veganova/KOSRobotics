@@ -1,6 +1,6 @@
 runpath("0:/helpers/helper.ks").
-print "blastoff!".
 
+print "blastoff!".
 blastOff().
 
 escapeAtmosphere().
@@ -9,10 +9,11 @@ set mapview to true.
 
 makeOrbitCircular().
 
-doTransfer().
+transferToMun().
 
 set mapview to false.
 
-doHoverslam().
+print "hoverslam!".
+hoverslam().
 
 wait until false.

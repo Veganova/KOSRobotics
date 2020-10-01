@@ -7,7 +7,6 @@ runpath("0:/helpers/math.ks").
 
 function executeNode {
     parameter nd.
-    // local nd is nextnode.
 
     print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
 
@@ -15,16 +14,16 @@ function executeNode {
 
     // TODO: Apply rocket equation
     // maybe from: https://github.com/KSP-KOS/KSLib/blob/master/library/lib_navigation.ks
-    local burn_duration is nodeBurnDuration(nd).//nd:deltav:mag/max_acc.
-    print "Crude Estimated burn duration: " + round(burn_duration) + "s".
+    local burnDuration is nodeBurnDuration(nd).
+    local startTime is time:seconds + nd:eta - burnDuration / 2.
+    print "Burn duration: " + round(burnDuration) + "s".
 
-    until nd:eta <= (burn_duration/2 + 60) {
-        print "waiting for nd: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag) at (0,  30).
-    }
+    warpto(startTime - 15).
 
-    local np is nd:deltav.
-    lock steering to np.
+    // local np is nd:deltav.
+    lock steering to nd:burnvector.
 
+    wait until time:seconds > startTime.
     // wait until vang(np, ship:facing:vector) < 0.25.
     // wait until nd:eta <= (burn_duration/2).
 
@@ -41,6 +40,8 @@ function executeNode {
     local dv0 is nd:deltav.
     until done
     {
+        engageThrusters().
+
         // recalculate current max_acceleration, as it changes while we burn through fuel
         set max_acc to ship:maxthrust/ship:mass.
 
@@ -59,7 +60,7 @@ function executeNode {
             lock throttle to 0.
             break.
         }
-
+        
         // we have very little left to burn, less then 0.1m/s
         if nd:deltav:mag < 0.1
         {
